@@ -10,6 +10,13 @@ def convert_time_to_seconds(start_time, end_time):
     """Calculates the length of a subtitle entry in seconds."""
     return end_time - start_time
 
+def format_timestamp(seconds):
+    """Converts a time in seconds to HH:MM:SS.mmm format for VTT."""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    remaining_seconds = seconds % 60
+    return f"{hours:02d}:{minutes:02d}:{remaining_seconds:06.3f}"
+
 def write_edl_file(search_results, query_str):
     """Generates a string in mpv EDL format and writes to a file."""
     
@@ -50,6 +57,30 @@ def write_text_file(text_results, query_str):
 
     print(f"Subtitles text file saved to: {text_path}")
 
+def write_vtt_file(text_results, query_str):
+    """Writes a combined VTT file with a new, sequential timeline."""
+    safe_query = re.sub(r'[^a-zA-Z0-9_]+', '_', query_str)
+    vtt_filename = f"{safe_query}.vtt"
+    vtt_path = os.path.join('/tmp', vtt_filename)
+    
+    with open(vtt_path, 'w') as f:
+        f.write("WEBVTT\n\n")
+        
+        current_time = 0.0
+        for result in text_results:
+            file_path, start_time, end_time, text = result
+            
+            # The start and end times in the VTT file are relative to the EDL
+            # We add a small delay to separate the chunks visually
+            start_vtt = current_time + 0.5
+            end_vtt = start_vtt + (end_time - start_time)
+            
+            f.write(f"{format_timestamp(start_vtt)} --> {format_timestamp(end_vtt)}\n")
+            f.write(f"{text}\n\n")
+            
+            current_time = end_vtt + 0.5
+
+    print(f"Combined VTT file saved to: {vtt_path}")
 
 def load_subtitles(directory_path, reload=False):
     """Handles loading or updating the database with subtitles."""
@@ -116,7 +147,7 @@ def query_subtitles(query_str, before_lines, after_lines):
     for row in results:
         file_path, start_time_match, end_time_match, sub_id_match, media_id_match, text_match = row
 
-        # NEW CHECK: Skip files that contain a comma in the filename
+        # Skip files that contain a comma in the filename
         if ',' in file_path:
             print(f"Skipping file with comma in name: {file_path}")
             continue
@@ -163,6 +194,7 @@ def query_subtitles(query_str, before_lines, after_lines):
     
     write_edl_file(edl_entries, query_str)
     write_text_file(text_entries, query_str)
+    write_vtt_file(text_entries, query_str)
 
 
 def main():

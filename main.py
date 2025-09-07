@@ -19,12 +19,37 @@ def write_edl_file(search_results, query_str):
     edl_path = os.path.join('/tmp', edl_filename)
     
     with open(edl_path, 'w') as f:
+        # Add the required EDL header
+        f.write("# mpv EDL v0\n")
+        
         for result in search_results:
             file_path, start_time, length = result
             # EDL format: file_path, start_time, length
             f.write(f"{file_path},{start_time:.2f},{length:.2f}\n")
     
     print(f"\nEDL file saved to: {edl_path}")
+
+def write_text_file(text_results, query_str):
+    """Writes the matched subtitles text to a file for review."""
+
+    # Sanitize query string for a safe filename
+    safe_query = re.sub(r'[^a-zA-Z0-9_]+', '_', query_str)
+    text_filename = f"{safe_query}.txt"
+    text_path = os.path.join('/tmp', text_filename)
+    
+    with open(text_path, 'w') as f:
+        current_file = None
+        for result in text_results:
+            file_path, start_time, end_time, text = result
+            if file_path != current_file:
+                f.write(f"\n--- File: {file_path} ---\n")
+                current_file = file_path
+            
+            f.write(f"[{start_time:.2f} --> {end_time:.2f}]\n")
+            f.write(f"{text}\n")
+
+    print(f"Subtitles text file saved to: {text_path}")
+
 
 def load_subtitles(directory_path, reload=False):
     """Handles loading or updating the database with subtitles."""
@@ -33,32 +58,34 @@ def load_subtitles(directory_path, reload=False):
         if os.path.exists(db_manager.DATABASE_NAME):
             os.remove(db_manager.DATABASE_NAME)
         db_manager.create_tables()
-
-    last_modified_time = db_manager.get_last_modified_time()
     
     file_pairs = file_walker.find_media_and_subtitles(directory_path)
     print(f"Found {len(file_pairs)} media/subtitle pairs.")
 
+    processed_count = 0
     for pair in file_pairs:
         media_path = pair['media_path']
         subtitle_path = pair['subtitle_path']
         
-        mod_time = os.path.getmtime(media_path)
-        if not reload and mod_time <= last_modified_time:
-            print(f"Skipping {media_path} (not modified since last update).")
-            continue
+        if not reload:
+            media_id = db_manager.get_media_id(media_path)
+            if media_id is not None:
+                print(f"Skipping {media_path} (already in the database).")
+                continue
 
         print(f"Processing {media_path}...")
         
-        media_id = db_manager.get_media_id(media_path)
-        if media_id is None:
-            # We use the modification time as a simple form of hash for now
-            media_id = db_manager.insert_media_file(media_path, str(mod_time), int(mod_time))
+        mod_time = os.path.getmtime(media_path)
+        media_id = db_manager.insert_media_file(media_path, str(mod_time), int(mod_time))
         
         if media_id is not None:
             subtitles = subtitle_parser.parse_subtitle_file(subtitle_path)
             db_manager.insert_subtitles(media_id, subtitles)
+            processed_count += 1
             print(f"  Successfully loaded {len(subtitles)} subtitles.")
+
+    print(f"Loaded {processed_count} new media files.")
+
 
 def query_subtitles(query_str, before_lines, after_lines):
     """Performs a global search on the database and handles EDL generation."""
@@ -68,7 +95,7 @@ def query_subtitles(query_str, before_lines, after_lines):
     search_pattern = f"%{query_str}%"
     
     cursor.execute('''
-        SELECT T1.file_path, T2.start_time, T2.end_time, T2.id, T1.id
+        SELECT T1.file_path, T2.start_time, T2.end_time, T2.id, T1.id, T2.text
         FROM media_files AS T1
         JOIN subtitles AS T2 ON T1.id = T2.media_id
         WHERE T2.text LIKE ?
@@ -77,7 +104,8 @@ def query_subtitles(query_str, before_lines, after_lines):
     
     results = cursor.fetchall()
     
-    edl_output = []
+    edl_entries = []
+    text_entries = []
     
     if not results:
         print(f"No results found for '{query_str}'")
@@ -86,40 +114,55 @@ def query_subtitles(query_str, before_lines, after_lines):
     print(f"Found {len(results)} matches for '{query_str}'")
     
     for row in results:
-        file_path, start_time, end_time, sub_id, media_id = row
+        file_path, start_time_match, end_time_match, sub_id_match, media_id_match, text_match = row
 
-        # Handle --before
+        # NEW CHECK: Skip files that contain a comma in the filename
+        if ',' in file_path:
+            print(f"Skipping file with comma in name: {file_path}")
+            continue
+
+        # Get 'before' subtitles
+        before_subs = []
         if before_lines > 0:
             cursor.execute('''
-                SELECT start_time
+                SELECT start_time, end_time, text
                 FROM subtitles
                 WHERE media_id = ? AND id < ?
                 ORDER BY id DESC
                 LIMIT ?
-            ''', (media_id, sub_id, before_lines))
-            before_subs = cursor.fetchall()
-            if before_subs:
-                start_time = before_subs[-1][0]
-        
-        # Handle --after
+            ''', (media_id_match, sub_id_match, before_lines))
+            before_subs = list(reversed(cursor.fetchall()))
+
+        # Get 'after' subtitles
+        after_subs = []
         if after_lines > 0:
             cursor.execute('''
-                SELECT end_time
+                SELECT start_time, end_time, text
                 FROM subtitles
                 WHERE media_id = ? AND id > ?
                 ORDER BY id ASC
                 LIMIT ?
-            ''', (media_id, sub_id, after_lines))
+            ''', (media_id_match, sub_id_match, after_lines))
             after_subs = cursor.fetchall()
-            if after_subs:
-                end_time = after_subs[-1][0]
+
+        # Build the EDL and text entries
+        edl_start_time = before_subs[0][0] if before_subs else start_time_match
+        edl_end_time = after_subs[-1][1] if after_subs else end_time_match
         
-        length = convert_time_to_seconds(start_time, end_time)
-        edl_output.append((file_path, start_time, length))
+        edl_length = convert_time_to_seconds(edl_start_time, edl_end_time)
+        edl_entries.append((file_path, edl_start_time, edl_length))
+        
+        # Add all subtitles in the clip to the text entries
+        for sub in before_subs:
+            text_entries.append((file_path, sub[0], sub[1], sub[2]))
+        text_entries.append((file_path, start_time_match, end_time_match, text_match))
+        for sub in after_subs:
+            text_entries.append((file_path, sub[0], sub[1], sub[2]))
 
     conn.close()
     
-    write_edl_file(edl_output, query_str)
+    write_edl_file(edl_entries, query_str)
+    write_text_file(text_entries, query_str)
 
 
 def main():

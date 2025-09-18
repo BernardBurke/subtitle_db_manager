@@ -1,10 +1,11 @@
 import argparse
 import os
 import re
+import shutil
+from datetime import datetime
 import db_manager
 import file_walker
 import subtitle_parser
-from datetime import datetime
 
 def convert_time_to_seconds(start_time, end_time):
     """Calculates the length of a subtitle entry in seconds."""
@@ -84,6 +85,18 @@ def write_vtt_file(text_results, query_str):
 
 def load_subtitles(directory_path, reload=False):
     """Handles loading or updating the database with subtitles."""
+    if not reload and os.path.exists(db_manager.DATABASE_NAME):
+        # This is an update, so backup the database first.
+        backup_dir = os.path.expanduser('~/Downloads')
+        if not os.path.exists(backup_dir):
+            os.makedirs(backup_dir)
+        
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_filename = f"subtitles_backup_{timestamp}.db"
+        backup_path = os.path.join(backup_dir, backup_filename)
+        shutil.copy2(db_manager.DATABASE_NAME, backup_path)
+        print(f"Database backed up to: {backup_path}")
+
     if reload:
         print("Recreating database...")
         if os.path.exists(db_manager.DATABASE_NAME):

@@ -1,0 +1,54 @@
+# ----------------------------------------------------------------------
+# 1. PYTHON-SPECIFIC FILES (.gitignore Template for Python Projects)
+# ----------------------------------------------------------------------
+# Byte-compiled / optimized / shared libraries
+__pycache__/
+*.py[cod]
+*$py.class
+# Cython / build artifacts
+*.c
+*.so
+# Distribution / packaging
+.Python
+build/
+dist/
+develop-eggs/
+.eggs/
+# Sphinx documentation (if you add documentation later)
+docs/_build/
+
+# Virtual environment
+# This is the most important one if you use the standard 'venv' directory
+venv/ 
+.venv/
+env/
+.env/
+
+# IDE/Editor Files (Common in open-source projects)
+.idea/          # JetBrains (PyCharm, IntelliJ, etc.)
+.vscode/        # VS Code
+*.swp           # Vim/Vi swap files
+*~              # Common editor backup files
+.DS_Store       # macOS
+Thumbs.db       # Windows
+
+# ----------------------------------------------------------------------
+# 2. PROJECT-SPECIFIC ARTIFACTS
+# ----------------------------------------------------------------------
+
+# Subtitle DB (The main SQLite database file)
+# This should NOT be committed as it's built dynamically by the project.
+subtitles.db
+*.sqlite
+*.sqlite3
+
+# Temporary/Output Files (from the new 'cut' command and original query)
+# The PERE variable output directory should typically be ignored.
+# Since PERE is an environment variable, we ignore /tmp/ which you use 
+# for query outputs (EDL/TXT/VTT)
+/tmp/*
+
+# VTT conversion temp file (created by 'cut' command logic)
+*.temp_*.srt
+
+# ----------------------------------------------------------------------

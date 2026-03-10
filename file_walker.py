@@ -1,6 +1,6 @@
 import os
 
-MEDIA_EXTENSIONS = ['.mp4', '.mkv', '.avi', '.webm', '.m4a', '.mp3']
+MEDIA_EXTENSIONS = ['.mp4', '.mkv', '.avi', '.webm', '.m4a', '.mp3', '.flac', '.wav']
 
 def find_media_and_subtitles(directory_path):
     media_files = []

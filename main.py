@@ -229,16 +229,31 @@ def advanced_search(query_str, before_sec, after_sec):
     for file_path, entries in grouped_edl_entries.items():
         write_grouped_edl_file(file_path, entries, safe_query)
 
-    # Write the master summary EDL (only if we have valid entries after filtering commas)
+    # Write the master summary EDL in chunks of 500 to prevent mpv "too many files open" errors
     if master_edl_entries:
-        summary_edl_path = os.path.join('/tmp', f"{safe_query}_summary.edl")
-        with open(summary_edl_path, 'w') as f:
-            f.write("# mpv EDL v0\n")
-            for entry in master_edl_entries:
-                path, start_time, length = entry
-                f.write(f"{path},{start_time:.3f},{length:.3f}\n")
-                
-        print(f"\n📋 Master summary EDL created: {summary_edl_path} ({len(master_edl_entries)} total segments)")
+        CHUNK_SIZE = 500
+        total_segments = len(master_edl_entries)
+        chunks = [master_edl_entries[i:i + CHUNK_SIZE] for i in range(0, total_segments, CHUNK_SIZE)]
+
+        print(f"\n📋 Master summary EDL generation ({total_segments} total segments):")
+
+        if len(chunks) == 1:
+            summary_edl_path = os.path.join('/tmp', f"{safe_query}_summary.edl")
+            with open(summary_edl_path, 'w') as f:
+                f.write("# mpv EDL v0\n")
+                for entry in chunks[0]:
+                    path, start_time, length = entry
+                    f.write(f"{path},{start_time:.3f},{length:.3f}\n")
+            print(f"   - Created: {summary_edl_path}")
+        else:
+            for idx, chunk in enumerate(chunks, 1):
+                summary_edl_path = os.path.join('/tmp', f"{safe_query}_summary_part{idx}.edl")
+                with open(summary_edl_path, 'w') as f:
+                    f.write("# mpv EDL v0\n")
+                    for entry in chunk:
+                        path, start_time, length = entry
+                        f.write(f"{path},{start_time:.3f},{length:.3f}\n")
+                print(f"   - Created: {summary_edl_path} ({len(chunk)} segments)")
 
 
 # --- Phase 3: Integrated Stitching & Subtitle Reconstruction Logic ---
